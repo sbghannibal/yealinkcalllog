@@ -7,7 +7,7 @@ use PDO;
 
 final class Migrations
 {
-    private const SCHEMA_VERSION = 1;
+    private const SCHEMA_VERSION = 2;
 
     public static function migrate(PDO $db): void
     {
@@ -25,6 +25,9 @@ final class Migrations
 
         if ($current < 1) {
             self::v1($db);
+        }
+        if ($current < 2) {
+            self::v2($db);
         }
     }
 
@@ -74,6 +77,35 @@ final class Migrations
 
         $db->prepare(
             "INSERT INTO schema_migrations (id, migrated_at) VALUES (1, NOW(3))"
+        )->execute();
+    }
+
+    private static function v2(PDO $db): void
+    {
+        // Extend yealink_events to accept the 'outgoing' event type.
+        $db->exec("
+            ALTER TABLE yealink_events
+                MODIFY COLUMN event ENUM('ringing','answered','ended','missed','outgoing') NOT NULL
+        ");
+
+        // Add direction and outgoing_at columns to yealink_calls.
+        $db->exec("
+            ALTER TABLE yealink_calls
+                ADD COLUMN direction    VARCHAR(3)  NULL AFTER missed_at,
+                ADD COLUMN outgoing_at  DATETIME(3) NULL AFTER direction
+        ");
+
+        // Backfill direction for existing calls:
+        // calls with ringing_at set were incoming calls.
+        $db->exec("
+            UPDATE yealink_calls
+               SET direction = 'in'
+             WHERE direction IS NULL
+               AND ringing_at IS NOT NULL
+        ");
+
+        $db->prepare(
+            "INSERT INTO schema_migrations (id, migrated_at) VALUES (2, NOW(3))"
         )->execute();
     }
 }

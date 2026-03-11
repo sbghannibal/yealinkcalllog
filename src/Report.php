@@ -39,10 +39,21 @@ final class Report
         $stmt = $db->prepare("
             SELECT
                 ext,
+                SUM(CASE WHEN direction = 'in'  THEN 1 ELSE 0 END) AS incoming_calls,
+                SUM(CASE WHEN direction = 'out' THEN 1 ELSE 0 END) AS outgoing_calls,
                 SUM(received)  AS received_calls,
                 SUM(answered)  AS answered_calls,
                 SUM(missed)    AS missed_calls,
-                ROUND(100 * SUM(answered) / NULLIF(SUM(received), 0), 1) AS answer_rate_pct
+                ROUND(100 * SUM(answered) / NULLIF(SUM(received), 0), 1) AS answer_rate_pct,
+                SUM(
+                    CASE
+                        WHEN answered_at IS NOT NULL
+                             AND ended_at IS NOT NULL
+                             AND ended_at >= answered_at
+                        THEN TIMESTAMPDIFF(SECOND, answered_at, ended_at)
+                        ELSE 0
+                    END
+                ) AS total_talk_secs
             FROM yealink_calls
             WHERE first_seen_at >= :start
               AND first_seen_at <  :end
@@ -97,10 +108,12 @@ final class Report
     <thead>
       <tr>
         <th>Extension</th>
-        <th>Received</th>
+        <th>Incoming</th>
+        <th>Outgoing</th>
         <th>Answered</th>
         <th>Missed</th>
         <th>Answer Rate %</th>
+        <th>Total Talk Time</th>
       </tr>
     </thead>
     <tbody>
@@ -108,15 +121,17 @@ final class Report
         <?php foreach ($rows as $r): ?>
         <tr>
           <td><?= htmlspecialchars((string) $r['ext'], ENT_QUOTES, 'UTF-8') ?></td>
-          <td><?= (int) $r['received_calls'] ?></td>
+          <td><?= (int) $r['incoming_calls'] ?></td>
+          <td><?= (int) $r['outgoing_calls'] ?></td>
           <td><?= (int) $r['answered_calls'] ?></td>
           <td><?= (int) $r['missed_calls'] ?></td>
           <td><?= htmlspecialchars((string) ($r['answer_rate_pct'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
+          <td><?= self::formatDuration((int) $r['total_talk_secs']) ?></td>
         </tr>
         <?php endforeach; ?>
       <?php else: ?>
         <tr>
-          <td colspan="5" class="muted">No calls recorded for <?= htmlspecialchars($day, ENT_QUOTES, 'UTF-8') ?>.</td>
+          <td colspan="7" class="muted">No calls recorded for <?= htmlspecialchars($day, ENT_QUOTES, 'UTF-8') ?>.</td>
         </tr>
       <?php endif; ?>
     </tbody>
@@ -126,5 +141,22 @@ final class Report
 </body>
 </html>
         <?php
+    }
+
+    private static function formatDuration(int $seconds): string
+    {
+        if ($seconds <= 0) {
+            return '—';
+        }
+        $h = intdiv($seconds, 3600);
+        $m = intdiv($seconds % 3600, 60);
+        $s = $seconds % 60;
+        if ($h > 0) {
+            return sprintf('%d h %02d min %02d s', $h, $m, $s);
+        }
+        if ($m > 0) {
+            return sprintf('%d min %02d s', $m, $s);
+        }
+        return sprintf('%d s', $s);
     }
 }
