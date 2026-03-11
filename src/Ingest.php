@@ -7,7 +7,7 @@ use PDO;
 
 final class Ingest
 {
-    private const ALLOWED_EVENTS = ['ringing', 'answered', 'ended', 'missed'];
+    private const ALLOWED_EVENTS = ['ringing', 'answered', 'ended', 'missed', 'outgoing'];
 
     public static function handle(PDO $db, Config $cfg, array $q, array $server): void
     {
@@ -73,21 +73,27 @@ final class Ingest
             'answered' => 'answered_at',
             'ended'    => 'ended_at',
             'missed'   => 'missed_at',
+            'outgoing' => 'outgoing_at',
         };
-        $received = ($event === 'ringing')  ? 1 : 0;
-        $answered = ($event === 'answered') ? 1 : 0;
-        $missed   = ($event === 'missed')   ? 1 : 0;
+        $received  = ($event === 'ringing')   ? 1 : 0;
+        $answered  = ($event === 'answered')  ? 1 : 0;
+        $missed    = ($event === 'missed')    ? 1 : 0;
+        $direction = match ($event) {
+            'ringing'  => 'in',
+            'outgoing' => 'out',
+            default    => null,
+        };
 
         // phpcs:disable
         $sql = "
             INSERT INTO yealink_calls
                 (ext, call_id, first_seen_at, {$timeCol},
                  local_uri, remote_uri, display_local, display_remote,
-                 received, answered, missed)
+                 received, answered, missed, direction)
             VALUES
                 (:ext, :call_id, NOW(3), NOW(3),
                  :local_uri, :remote_uri, :display_local, :display_remote,
-                 :received, :answered, :missed)
+                 :received, :answered, :missed, :direction)
             ON DUPLICATE KEY UPDATE
                 {$timeCol}     = COALESCE({$timeCol}, NOW(3)),
                 local_uri      = COALESCE(local_uri,      VALUES(local_uri)),
@@ -96,7 +102,8 @@ final class Ingest
                 display_remote = COALESCE(display_remote, VALUES(display_remote)),
                 received       = GREATEST(received,  VALUES(received)),
                 answered       = GREATEST(answered,  VALUES(answered)),
-                missed         = GREATEST(missed,    VALUES(missed))
+                missed         = GREATEST(missed,    VALUES(missed)),
+                direction      = COALESCE(direction, VALUES(direction))
         ";
         // phpcs:enable
 
@@ -110,6 +117,7 @@ final class Ingest
             ':received'       => $received,
             ':answered'       => $answered,
             ':missed'         => $missed,
+            ':direction'      => $direction,
         ]);
 
         header('Content-Type: text/plain; charset=utf-8');

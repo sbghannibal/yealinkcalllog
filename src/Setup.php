@@ -25,6 +25,12 @@ final class Setup
                 'yealink'  => 'features.action_url.incoming_call',
                 'event'    => 'ringing',
             ],
+            'outgoing' => [
+                'label'    => 'Outgoing call',
+                'setting'  => 'Action URL – Outgoing call',
+                'yealink'  => 'features.action_url.outgoing_call',
+                'event'    => 'outgoing',
+            ],
             'answered' => [
                 'label'    => 'Call answered',
                 'setting'  => 'Action URL – Answer call',
