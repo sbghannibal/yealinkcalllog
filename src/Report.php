@@ -46,7 +46,6 @@ final class Report
             FROM yealink_calls
             WHERE first_seen_at >= :start
               AND first_seen_at <  :end
-              AND first_seen_at >= (NOW() - INTERVAL 12 MONTH)
             GROUP BY ext
             ORDER BY received_calls DESC, ext ASC
         ");
