@@ -23,7 +23,8 @@ final class Report
         $userRole = $userNorm['role'];
         $userExt  = $userNorm['ext'];
 
-        $tz    = new DateTimeZone('UTC');
+        $tz    = new DateTimeZone('Europe/Brussels');
+        $utcTz = new DateTimeZone('UTC');
         $now   = new DateTimeImmutable('now', $tz);
         $today = $now->format('Y-m-d');
 
@@ -78,8 +79,8 @@ final class Report
               AND first_seen_at <  :end";
 
         $params = [
-            ':start' => $start->format('Y-m-d H:i:s'),
-            ':end'   => $end->format('Y-m-d H:i:s'),
+            ':start' => $start->setTimezone($utcTz)->format('Y-m-d H:i:s'),
+            ':end'   => $end->setTimezone($utcTz)->format('Y-m-d H:i:s'),
         ];
 
         // apply allowed extensions filter
@@ -111,7 +112,7 @@ final class Report
         ?>
 <div class="px-card">
   <h1 class="px-title">Dashboard</h1>
-  <p class="px-sub">Daily overview (UTC). Reporting limited to last 12 months.</p>
+  <p class="px-sub">Daily overview (Europe/Brussels). Reporting limited to last 12 months.</p>
 
   <form method="get" action="/dashboard" class="px-row" style="align-items:flex-end">
     <div class="px-field" style="min-width:220px">
@@ -203,8 +204,9 @@ final class Report
         ];
         $allowedExts = Auth::allowedExtensions($db, $userNorm);
 
-        $tz  = new DateTimeZone('UTC');
-        $now = new DateTimeImmutable('now', $tz);
+        $tz    = new DateTimeZone('Europe/Brussels');
+        $utcTz = new DateTimeZone('UTC');
+        $now   = new DateTimeImmutable('now', $tz);
 
         $ext = trim((string)($q['ext'] ?? ''));
         if ($ext === '') {
@@ -263,8 +265,8 @@ final class Report
         foreach ($windows as $w) {
             $stmt->execute([
                 ':ext'   => $ext,
-                ':start' => $w['start']->format('Y-m-d H:i:s'),
-                ':end'   => $w['end']->format('Y-m-d H:i:s'),
+                ':start' => $w['start']->setTimezone($utcTz)->format('Y-m-d H:i:s'),
+                ':end'   => $w['end']->setTimezone($utcTz)->format('Y-m-d H:i:s'),
             ]);
             $r = $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
 
@@ -283,7 +285,7 @@ final class Report
         ?>
 <div class="px-card">
   <h1 class="px-title">Extension <?= htmlspecialchars($ext, ENT_QUOTES, 'UTF-8') ?></h1>
-  <p class="px-sub">Rolling windows (except Today = current UTC day).</p>
+  <p class="px-sub">Rolling windows (except Today = current Europe/Brussels day).</p>
 
   <table class="px-table">
     <thead>
@@ -328,8 +330,9 @@ final class Report
         ];
         $allowedExts = Auth::allowedExtensions($db, $userNorm);
 
-        $tz  = new DateTimeZone('UTC');
-        $now = new DateTimeImmutable('now', $tz);
+        $tz    = new DateTimeZone('Europe/Brussels');
+        $utcTz = new DateTimeZone('UTC');
+        $now   = new DateTimeImmutable('now', $tz);
 
         $todayStr = $now->format('Y-m-d');
         $minDate  = $now->modify('-12 months');
@@ -388,8 +391,8 @@ final class Report
 
         $where  = "first_seen_at >= :start AND first_seen_at < :end";
         $params = [
-            ':start' => $rangeStart->format('Y-m-d H:i:s'),
-            ':end'   => $rangeEnd->format('Y-m-d H:i:s'),
+            ':start' => $rangeStart->setTimezone($utcTz)->format('Y-m-d H:i:s'),
+            ':end'   => $rangeEnd->setTimezone($utcTz)->format('Y-m-d H:i:s'),
         ];
 
         // apply allowed exts
@@ -465,7 +468,7 @@ final class Report
         ?>
 <div class="px-card">
   <h1 class="px-title">Calls</h1>
-  <p class="px-sub">Filter by date range (UTC). Hard clamp: last 12 months.</p>
+  <p class="px-sub">Filter by date range (Europe/Brussels). Hard clamp: last 12 months.</p>
 
   <div class="px-actions" style="margin-bottom:10px;flex-wrap:wrap">
     <?php foreach ($quickBtns as $label => $range): ?>
@@ -526,7 +529,7 @@ final class Report
   <table class="px-table" style="margin-top:10px">
     <thead>
       <tr>
-        <th>Date / Time (UTC)</th>
+        <th>Date / Time (Europe/Brussels)</th>
         <?php if ($isAdmin && $extFilter === null): ?><th>Ext</th><?php endif; ?>
         <th>Dir</th>
         <th>Remote</th>
