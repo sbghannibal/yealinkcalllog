@@ -53,6 +53,11 @@ if ($path === '/yealink/event') {
     exit;
 }
 
+if ($path === '/extension') {
+    Report::renderExtensionStats($db, $cfg, $_GET);
+    exit;
+}
+
 if ($path === '/' || $path === '/dashboard') {
     Report::renderDashboard($db, $cfg, $_GET);
     exit;
