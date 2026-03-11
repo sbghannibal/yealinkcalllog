@@ -7,7 +7,7 @@ use PDO;
 
 final class Migrations
 {
-    private const SCHEMA_VERSION = 2;
+    private const SCHEMA_VERSION = 3;
 
     public static function migrate(PDO $db): void
     {
@@ -28,6 +28,9 @@ final class Migrations
         }
         if ($current < 2) {
             self::v2($db);
+        }
+        if ($current < 3) {
+            self::v3($db);
         }
     }
 
@@ -106,6 +109,27 @@ final class Migrations
 
         $db->prepare(
             "INSERT INTO schema_migrations (id, migrated_at) VALUES (2, NOW(3))"
+        )->execute();
+    }
+
+    private static function v3(PDO $db): void
+    {
+        // Users table for session-based authentication.
+        $db->exec("
+            CREATE TABLE IF NOT EXISTS users (
+                id         INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                username   VARCHAR(64)  NOT NULL,
+                password   VARCHAR(255) NOT NULL,
+                role       ENUM('admin','user') NOT NULL DEFAULT 'user',
+                ext        VARCHAR(64)  NULL,
+                created_at DATETIME(3)  NOT NULL,
+                UNIQUE KEY uniq_username (username),
+                KEY idx_role (role)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+
+        $db->prepare(
+            "INSERT INTO schema_migrations (id, migrated_at) VALUES (3, NOW(3))"
         )->execute();
     }
 }

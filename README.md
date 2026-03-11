@@ -1,16 +1,19 @@
 # yealinkcalllog
 
-Minimal PHP + MySQL service that receives Yealink phone events via **Action URL**, stores them in MySQL, and shows a per-extension daily summary dashboard.
+Minimal PHP + MySQL service that receives Yealink phone events via **Action URL**, stores them in MySQL, and shows a per-extension dashboard with authenticated access.
 
 ---
 
 ## Features
 
 - **Auto-migrate** – tables are created on the very first request; no manual SQL needed.
-- **`GET /yealink/event`** – ingest endpoint for Yealink Action URL callbacks.
+- **Session-based auth** – admin and per-extension user accounts; all pages require login.
+- **`GET /yealink/event`** – public ingest endpoint for Yealink Action URL callbacks.
 - **`GET /dashboard`** – daily HR dashboard (received / answered / missed / answer-rate %).
+- **`GET /extension`** – per-extension rolling statistics (today / 7d / 1m / 3m / 6m / 12m).
+- **`GET /calls`** – paginated call list with date-range and quick-filter buttons.
 - **`GET /setup`** – phone configuration helper: generates ready-to-copy Action URLs.
-- Hard **12-month lookback** cap enforced in queries.
+- Hard **12-month lookback** cap enforced in all queries.
 - Optional shared-secret protection via `YEALINK_TOKEN` env var.
 
 ---
@@ -22,12 +25,14 @@ public/
   index.php      ← web root entry point (point your web server here)
   .htaccess      ← Apache rewrite rules
 src/
-  Config.php     ← reads env vars
+  Auth.php       ← session management, login/logout, access guards
+  Config.php     ← reads env vars + .env file loader
   Db.php         ← PDO MySQL connection
   Migrations.php ← auto schema migration
   Ingest.php     ← /yealink/event handler
-  Report.php     ← /dashboard handler
+  Report.php     ← /dashboard, /extension, /calls handlers
   Setup.php      ← /setup phone-config helper
+.env.example     ← copy to .env and fill in your values
 ```
 
 > **Zero dependencies** – no Composer required.
@@ -83,9 +88,39 @@ GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX ON yealinkcalllog.* T
 FLUSH PRIVILEGES;
 ```
 
-The tables (`schema_migrations`, `yealink_events`, `yealink_calls`) are created automatically on the first request.
+The tables are created automatically on the first request.
 
-### 3. Set environment variables
+### 3. Configure environment variables
+
+The easiest way is a **`.env` file** in the project root (the directory that contains `public/` and `src/`):
+
+#### Step-by-step
+
+1. Copy the example file:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Open `.env` in a text editor and fill in your values:
+   ```dotenv
+   DB_HOST=127.0.0.1
+   DB_PORT=3306
+   DB_NAME=yealinkcalllog
+   DB_USER=yealink
+   DB_PASS=strongpassword
+
+   # Optional: if set, every /yealink/event request must include ?token=<value>
+   YEALINK_TOKEN=mysecrettoken
+
+   # Optional but recommended: makes PHP session IDs harder to guess
+   # Generate with: php -r "echo bin2hex(random_bytes(32));"
+   SESSION_SECRET=
+   ```
+
+3. **Protect the `.env` file** – make sure it is not publicly accessible.  
+   For Apache the included `.htaccess` only routes PHP requests; the `.env` file lives outside `public/` so it is never served directly.
+
+> **Alternative**: set the same variables via Apache `SetEnv` in the VirtualHost or via the PHP-FPM pool config (`env[DB_HOST] = ...`). Variables set this way take priority over the `.env` file.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -94,27 +129,52 @@ The tables (`schema_migrations`, `yealink_events`, `yealink_calls`) are created 
 | `DB_NAME` | `yealinkcalllog` | Database name |
 | `DB_USER` | `root` | Database user |
 | `DB_PASS` | *(empty)* | Database password |
-| `YEALINK_TOKEN` | *(not set)* | Optional shared secret; if set, every ingest request must include `?token=<value>` |
+| `YEALINK_TOKEN` | *(not set)* | Optional shared secret for the ingest endpoint |
+| `SESSION_SECRET` | *(not set)* | Optional extra entropy for PHP sessions |
 
-Example (Apache `SetEnv` in VirtualHost or `.htaccess`):
+---
 
-```apacheconf
-SetEnv DB_HOST     127.0.0.1
-SetEnv DB_NAME     yealinkcalllog
-SetEnv DB_USER     yealink
-SetEnv DB_PASS     strongpassword
-SetEnv YEALINK_TOKEN mysecrettoken
+## First-run: create the admin account
+
+On a fresh install (no admin exists yet) visit:
+
+```
+https://your-server/init
 ```
 
-Or via PHP-FPM pool (`www.conf`):
+Fill in a username and password (minimum 8 characters) and click **Create Admin Account**.  
+You will be redirected to the login page.
 
-```ini
-env[DB_HOST]        = 127.0.0.1
-env[DB_NAME]        = yealinkcalllog
-env[DB_USER]        = yealink
-env[DB_PASS]        = strongpassword
-env[YEALINK_TOKEN]  = mysecrettoken
+> `/init` is automatically disabled as soon as the first admin account is created.
+
+---
+
+## Login
+
+Visit any protected page (e.g. `/dashboard`) – you will be redirected to:
+
 ```
+https://your-server/login
+```
+
+Log in with the credentials you created at `/init`.
+
+---
+
+## User management
+
+Admins can create additional accounts at:
+
+```
+https://your-server/admin/users
+```
+
+Two roles are available:
+
+| Role | Access |
+|---|---|
+| **admin** | Full access – all extensions, all data, user management |
+| **user** | Restricted to a single extension (set at account creation) |
 
 ---
 
@@ -122,7 +182,7 @@ env[YEALINK_TOKEN]  = mysecrettoken
 
 ### Quick way – use the `/setup` page
 
-Open **`https://your-server/setup`** in a browser. The page auto-detects your server URL and generates the four Action URLs ready to copy-paste into each phone.
+Open **`https://your-server/setup`** in a browser (requires login). The page auto-detects your server URL and generates the four Action URLs ready to copy-paste into each phone.
 
 ### Manual configuration
 
@@ -168,29 +228,29 @@ curl "http://your-server/yealink/event?event=ended&ext=101&call_id=abc123&token=
 
 # Simulate a missed call
 curl "http://your-server/yealink/event?event=missed&ext=102&call_id=xyz789&token=mysecrettoken"
-
-# View dashboard for today
-curl "http://your-server/dashboard"
-
-# View dashboard for a specific date
-curl "http://your-server/dashboard?date=2025-06-15"
 ```
 
 ---
 
 ## Endpoints
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/yealink/event` | Receive a Yealink Action URL callback |
-| `GET` | `/` or `/dashboard` | HR dashboard (daily summary per extension) |
-| `GET` | `/setup` | Phone configuration helper – copy-paste Action URLs |
+| Method | Path | Auth required | Description |
+|---|---|---|---|
+| `GET` | `/yealink/event` | No (token optional) | Receive a Yealink Action URL callback |
+| `GET` / `POST` | `/login` | No | Login form |
+| `GET` | `/logout` | No | Clear session and redirect to /login |
+| `GET` / `POST` | `/init` | No (disabled after first admin) | Create first admin account |
+| `GET` | `/` or `/dashboard` | ✅ | Daily summary per extension |
+| `GET` | `/extension?ext=…` | ✅ | Rolling stats for one extension |
+| `GET` | `/calls` | ✅ | Paginated call list with filters |
+| `GET` | `/setup` | ✅ | Phone configuration helper |
+| `GET` / `POST` | `/admin/users` | ✅ Admin only | Create and list user accounts |
 
 ### `/yealink/event` query parameters
 
 | Parameter | Required | Description |
 |---|---|---|
-| `event` | ✅ | `ringing`, `answered`, `ended`, or `missed` |
+| `event` | ✅ | `ringing`, `answered`, `ended`, `missed`, or `outgoing` |
 | `ext` | ✅ | Extension / SIP user (`$active_user`) |
 | `call_id` | ✅ | Call identifier (`$call_id`) |
 | `local` | optional | Local SIP URI |
@@ -200,3 +260,4 @@ curl "http://your-server/dashboard?date=2025-06-15"
 | `token` | if enabled | Must match `YEALINK_TOKEN` env var |
 
 Returns `200 OK` (plain text) on success, `400` for missing/invalid params, `401` for bad token.
+
