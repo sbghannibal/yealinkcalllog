@@ -55,8 +55,13 @@ final class Phone
         // Plain digits only – prefix with default country code
         if (preg_match('#^\d{7,15}$#', $num)) {
             if ($defaultCountry === 'BE') {
+                // If it already starts with BE country code (32...), do not prefix again
+                if (preg_match("#^32[0-9]{7,13}$#", $num)) {
+                    return "+" . $num;
+                }
+
                 // Treat as national number without leading 0
-                return '+32' . $num;
+                return "+32" . $num;
             }
             return '+' . $num;
         }
