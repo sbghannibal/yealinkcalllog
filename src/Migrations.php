@@ -7,7 +7,7 @@ use PDO;
 
 final class Migrations
 {
-    private const SCHEMA_VERSION = 3;
+    private const SCHEMA_VERSION = 5;
 
     public static function migrate(PDO $db): void
     {
@@ -31,6 +31,12 @@ final class Migrations
         }
         if ($current < 3) {
             self::v3($db);
+        }
+        if ($current < 4) {
+            self::v4($db);
+        }
+        if ($current < 5) {
+            self::v5($db);
         }
     }
 
@@ -130,6 +136,127 @@ final class Migrations
 
         $db->prepare(
             "INSERT INTO schema_migrations (id, migrated_at) VALUES (3, NOW(3))"
+        )->execute();
+    }
+
+    private static function v4(PDO $db): void
+    {
+        // Add team_lead role to the users enum.
+        // MODIFY COLUMN is safe here: 'admin' and 'user' are kept; 'team_lead' is added.
+        $db->exec("
+            ALTER TABLE users
+                MODIFY COLUMN role ENUM('admin','user','team_lead') NOT NULL DEFAULT 'user'
+        ");
+
+        // Table for team lead → extension assignments.
+        $db->exec("
+            CREATE TABLE IF NOT EXISTS team_lead_exts (
+                team_lead_user_id INT UNSIGNED NOT NULL,
+                ext               VARCHAR(64)  NOT NULL,
+                PRIMARY KEY (team_lead_user_id, ext),
+                KEY idx_tle_user (team_lead_user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+
+        // Customers (companies / individuals that own cases).
+        $db->exec("
+            CREATE TABLE IF NOT EXISTS customers (
+                id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                name       VARCHAR(255)    NOT NULL,
+                created_at DATETIME(3)     NOT NULL,
+                KEY idx_customers_name (name)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+
+        // Cases / dossiers.
+        $db->exec("
+            CREATE TABLE IF NOT EXISTS `cases` (
+                id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                case_ref    VARCHAR(64)     NOT NULL,
+                title       VARCHAR(255)    NULL,
+                customer_id BIGINT UNSIGNED NULL,
+                created_at  DATETIME(3)     NOT NULL,
+                UNIQUE KEY uniq_case_ref (case_ref),
+                KEY idx_cases_customer (customer_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+
+        // Links between calls and cases (one call can have multiple historical links).
+        $db->exec("
+            CREATE TABLE IF NOT EXISTS call_links (
+                id                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                call_id           BIGINT UNSIGNED NOT NULL,
+                case_id           BIGINT UNSIGNED NULL,
+                customer_id       BIGINT UNSIGNED NULL,
+                link_type         VARCHAR(32)     NOT NULL DEFAULT 'manual',
+                linked_by_user_id INT UNSIGNED    NULL,
+                linked_at         DATETIME(3)     NOT NULL,
+                KEY idx_cl_call       (call_id),
+                KEY idx_cl_case       (case_id),
+                KEY idx_cl_linked_at  (linked_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+
+        $db->prepare(
+            "INSERT INTO schema_migrations (id, migrated_at) VALUES (4, NOW(3))"
+        )->execute();
+    }
+
+    private static function v5(PDO $db): void
+    {
+        // Phonebook: maps phone numbers to contacts and cases.
+        // A number may appear multiple times (one row per case linkage).
+        $db->exec("
+            CREATE TABLE IF NOT EXISTS phonebook_entries (
+                id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                phone_e164          VARCHAR(32)     NOT NULL,
+                raw_phone           VARCHAR(64)     NOT NULL DEFAULT '',
+                contact_name        VARCHAR(255)    NOT NULL DEFAULT '',
+                customer_id         BIGINT UNSIGNED NULL,
+                case_id             BIGINT UNSIGNED NULL,
+                case_ref            VARCHAR(64)     NOT NULL DEFAULT '',
+                created_by_user_id  INT UNSIGNED    NULL,
+                created_at          DATETIME(3)     NOT NULL,
+                last_used_at        DATETIME(3)     NULL,
+                KEY idx_pb_phone      (phone_e164),
+                KEY idx_pb_case       (case_id),
+                KEY idx_pb_case_ref   (case_ref),
+                KEY idx_pb_customer   (customer_id),
+                KEY idx_pb_last_used  (phone_e164, last_used_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        ");
+
+        // Add phone_e164, contact_name, case_ref to call_links if not present.
+        $existingCols = [];
+        $res = $db->query("SHOW COLUMNS FROM call_links");
+        if ($res !== false) {
+            foreach ($res->fetchAll(PDO::FETCH_ASSOC) as $col) {
+                $existingCols[] = strtolower((string)($col['Field'] ?? ''));
+            }
+        }
+
+        if (!in_array('case_ref', $existingCols, true)) {
+            $db->exec("ALTER TABLE call_links ADD COLUMN case_ref VARCHAR(64) NULL AFTER case_id");
+        }
+        if (!in_array('phone_e164', $existingCols, true)) {
+            $db->exec("ALTER TABLE call_links ADD COLUMN phone_e164 VARCHAR(32) NULL AFTER customer_id");
+        }
+        if (!in_array('contact_name', $existingCols, true)) {
+            $db->exec("ALTER TABLE call_links ADD COLUMN contact_name VARCHAR(255) NULL AFTER phone_e164");
+        }
+
+        // Add index on (phone_e164, linked_at) – skip if it already exists (MySQL error 1061).
+        try {
+            $db->exec("ALTER TABLE call_links ADD KEY idx_cl_phone_linked (phone_e164, linked_at)");
+        } catch (\PDOException $e) {
+            // 1061 = Duplicate key name; safe to ignore.
+            if ((string)$e->getCode() !== '42000' && strpos($e->getMessage(), '1061') === false) {
+                throw $e;
+            }
+        }
+
+        $db->prepare(
+            "INSERT INTO schema_migrations (id, migrated_at) VALUES (5, NOW(3))"
         )->execute();
     }
 }

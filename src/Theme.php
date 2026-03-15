@@ -26,6 +26,10 @@ final class Theme
       <div class="px-brand">P</div>
       <a class="px-sidebtn <?= $active==='dashboard'?'active':'' ?>" href="/dashboard" title="Dashboard">▦</a>
       <a class="px-sidebtn <?= $active==='calls'?'active':'' ?>" href="/calls" title="Calls">☎</a>
+      <a class="px-sidebtn <?= $active==='month'?'active':'' ?>" href="/month" title="Monthly registration">📅</a>
+      <?php if (($user['role'] ?? '') === 'admin' || ($user['role'] ?? '') === 'team_lead'): ?>
+        <a class="px-sidebtn <?= $active==='phonebook'?'active':'' ?>" href="/phonebook" title="Phonebook">📒</a>
+      <?php endif; ?>
       <?php if (($user['role'] ?? '') === 'admin'): ?>
         <a class="px-sidebtn <?= $active==='users'?'active':'' ?>" href="/admin/users" title="Users">👤</a>
         <a class="px-sidebtn <?= $active==='setup'?'active':'' ?>" href="/setup" title="Setup">⚙</a>

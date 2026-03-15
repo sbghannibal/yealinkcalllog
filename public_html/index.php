@@ -9,6 +9,9 @@ require __DIR__ . '/../src/Report.php';
 require __DIR__ . '/../src/Setup.php';
 require __DIR__ . '/../src/Theme.php';
 require __DIR__ . '/../src/Auth.php';
+require __DIR__ . '/../src/Phone.php';
+require __DIR__ . '/../src/Phonebook.php';
+require __DIR__ . '/../src/Monthly.php';
 
 use YealinkCallLog\Config;
 use YealinkCallLog\Db;
@@ -17,6 +20,8 @@ use YealinkCallLog\Ingest;
 use YealinkCallLog\Report;
 use YealinkCallLog\Setup;
 use YealinkCallLog\Auth;
+use YealinkCallLog\Phonebook;
+use YealinkCallLog\Monthly;
 
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
@@ -128,6 +133,32 @@ if ($path === '/admin/users/teamlead-exts') {
 if ($path === '/' || $path === '/dashboard') { Report::renderDashboard($db,$cfg,$user,$_GET); exit; }
 if ($path === '/extension') { Report::renderExtensionStats($db,$cfg,$user,$_GET); exit; }
 if ($path === '/calls') { Report::renderCalls($db,$cfg,$user,$_GET); exit; }
+
+if ($path === '/phonebook') {
+    if ($method === 'GET' || $method === 'POST') {
+        Phonebook::render($db, $user, $_GET, $_POST, $method);
+        exit;
+    }
+    http_response_code(405); header('Content-Type:text/plain; charset=utf-8'); echo "Method Not Allowed\n"; exit;
+}
+
+if ($path === '/month') {
+    Auth::requireLogin();
+    if ($method === 'GET') { Monthly::render($db, $user, $_GET); exit; }
+    http_response_code(405); header('Content-Type:text/plain; charset=utf-8'); echo "Method Not Allowed\n"; exit;
+}
+
+if ($path === '/month/link') {
+    Auth::requireLogin();
+    if ($method === 'POST') { Monthly::handleLink($db, $user, $_POST); exit; }
+    http_response_code(405); header('Content-Type:text/plain; charset=utf-8'); echo "Method Not Allowed\n"; exit;
+}
+
+if ($path === '/month/export.csv') {
+    Auth::requireLogin();
+    if ($method === 'GET') { Monthly::exportCsv($db, $user, $_GET); exit; }
+    http_response_code(405); header('Content-Type:text/plain; charset=utf-8'); echo "Method Not Allowed\n"; exit;
+}
 
 http_response_code(404);
 header('Content-Type:text/plain; charset=utf-8');
