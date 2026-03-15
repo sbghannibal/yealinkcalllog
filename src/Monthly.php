@@ -398,9 +398,9 @@ final class Monthly
                 u.username         AS linked_by
             FROM yealink_calls c
             LEFT JOIN call_links cl
-                ON cl.call_id = c.id
+                ON cl.call_row_id = c.id
                 AND cl.linked_at = (
-                    SELECT MAX(cl2.linked_at) FROM call_links cl2 WHERE cl2.call_id = c.id
+                    SELECT MAX(cl2.linked_at) FROM call_links cl2 WHERE cl2.call_row_id = c.id
                 )
             LEFT JOIN users u ON u.id = cl.linked_by_user_id
             WHERE c.first_seen_at >= :start
