@@ -50,6 +50,17 @@ final class Auth
         }
     }
 
+    public static function requireTeamLeadOrAdmin(): void
+    {
+        self::requireLogin();
+        if (!self::isAdmin() && !self::isTeamLead()) {
+            http_response_code(403);
+            header('Content-Type: text/plain; charset=utf-8');
+            echo "Forbidden\n";
+            exit;
+        }
+    }
+
     /**
      * Returns allowed extensions for reporting.
      * - admin: null (= all)
