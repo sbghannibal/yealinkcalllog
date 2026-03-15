@@ -127,8 +127,10 @@ final class Monthly
       <?php foreach ($calls as $c): ?>
       <?php
         $callId     = (int)$c['id'];
-        $remoteUri  = (string)($c['remote_uri'] ?? '');
-        $e164       = Phone::toE164($remoteUri) ?? '';
+          $remoteUriRaw  = (string)($c['remote_uri'] ?? '');
+          $remoteSip     = preg_replace('/\s+/', '', preg_replace('/@.*$/', '', $remoteUriRaw));
+          $e164          = Phone::toE164($remoteSip) ?? '';
+          $remoteDisplay = $e164 !== '' ? ('sip:' . $e164) : $remoteSip;
         $suggestion = $e164 !== '' ? ($suggestions[$e164] ?? null) : null;
         $linkedCase = (string)($c['linked_case_ref'] ?? '');
         $linkedName = (string)($c['linked_contact_name'] ?? '');
@@ -143,7 +145,7 @@ final class Monthly
         <td style="white-space:nowrap"><?= htmlspecialchars($ts, ENT_QUOTES, 'UTF-8') ?></td>
         <td><?= htmlspecialchars((string)($c['ext'] ?? ''), ENT_QUOTES, 'UTF-8') ?></td>
         <td><?= $dirLabel ?> <?= $missed ? '<span class="px-muted" title="missed">✗</span>' : '' ?></td>
-        <td style="font-size:.9em"><?= htmlspecialchars($remoteUri, ENT_QUOTES, 'UTF-8') ?></td>
+        <td style="font-size:.9em"><?= htmlspecialchars((string)$remoteDisplay, ENT_QUOTES, 'UTF-8') ?></td>
         <td><?= htmlspecialchars($duration, ENT_QUOTES, 'UTF-8') ?></td>
         <td>
           <?php if ($linkedCase !== ''): ?>
@@ -163,13 +165,13 @@ final class Monthly
         <td>
           <?php if (self::canLink($user, (string)($c['ext'] ?? ''), $allowedExts)): ?>
           <form method="post" action="/month/link" class="px-row" style="gap:4px;flex-wrap:nowrap">
-            <input type="hidden" name="call_id" value="<?= $callId ?>" />
+            <input type="hidden" name="call_row_id" value="<?= $callId ?>" />
             <input type="hidden" name="month" value="<?= htmlspecialchars($monthParam, ENT_QUOTES, 'UTF-8') ?>" />
             <?php if ($extFilter !== ''): ?>
               <input type="hidden" name="ext" value="<?= htmlspecialchars($extFilter, ENT_QUOTES, 'UTF-8') ?>" />
             <?php endif; ?>
             <input type="hidden" name="phone_e164" value="<?= htmlspecialchars($e164, ENT_QUOTES, 'UTF-8') ?>" />
-            <input type="hidden" name="raw_phone" value="<?= htmlspecialchars($remoteUri, ENT_QUOTES, 'UTF-8') ?>" />
+            <input type="hidden" name="raw_phone" value="<?= htmlspecialchars((string)$remoteDisplay, ENT_QUOTES, 'UTF-8') ?>" />
             <input
               class="px-input"
               style="width:110px;padding:2px 6px;font-size:.85em"
@@ -207,7 +209,7 @@ final class Monthly
     {
         Auth::requireLogin();
 
-        $callId      = (int)($post['call_id'] ?? 0);
+        $callId      = (int)($post['call_row_id'] ?? 0);
         $caseRef     = trim((string)($post['case_ref'] ?? ''));
         $contactName = trim((string)($post['contact_name'] ?? ''));
         $e164        = trim((string)($post['phone_e164'] ?? ''));
@@ -236,11 +238,14 @@ final class Monthly
         // Insert call_links record.
         $db->prepare("
             INSERT INTO call_links
-                (call_id, case_ref, phone_e164, contact_name, link_type, linked_by_user_id, linked_at)
+                (call_row_id, customer_id, case_id, case_ref, phone_e164, contact_name, link_type, linked_by_user_id, linked_at)
             VALUES
-                (:call_id, :case_ref, :phone_e164, :contact_name, 'manual', :uid, NOW(3))
+                (:call_row_id, :customer_id, :case_id, :case_ref, :phone_e164, :contact_name, 'manual', :uid, NOW(3))
         ")->execute([
-            ':call_id'      => $callId,
+            ':call_row_id' => $callId,
+              ':customer_id'   => null,
+              ':case_id'       => (int)($post['case_id'] ?? 0) ?: null,
+
             ':case_ref'     => $caseRef,
             ':phone_e164'   => $e164 !== '' ? $e164 : null,
             ':contact_name' => $contactName !== '' ? $contactName : null,
@@ -310,21 +315,24 @@ final class Monthly
         ]);
 
         foreach ($calls as $c) {
-            $e164 = Phone::toE164((string)($c['remote_uri'] ?? '')) ?? '';
+              $remoteUriRaw  = (string)($c['remote_uri'] ?? '');
+              $remoteSip     = preg_replace('/\s+/', '', preg_replace('/@.*$/', '', $remoteUriRaw));
+              $e164          = Phone::toE164($remoteSip) ?? '';
+              $remoteDisplay = $e164 !== '' ? ('sip:' . $e164) : $remoteSip;
             $dur  = self::calcDurationSecs($c);
-            fputcsv($out, [
-                (string)($c['first_seen_at'] ?? ''),
-                (string)($c['ext'] ?? ''),
-                (string)($c['direction'] ?? ''),
-                (int)($c['missed'] ?? 0) ? 'yes' : 'no',
-                (string)($c['remote_uri'] ?? ''),
-                $e164,
-                $dur !== null ? (string)$dur : '',
-                (string)($c['linked_case_ref'] ?? ''),
-                (string)($c['linked_contact_name'] ?? ''),
-                (string)($c['linked_at'] ?? ''),
-                (string)($c['linked_by'] ?? ''),
-            ]);
+              fputcsv($out, [
+                  (string)($c['first_seen_at'] ?? ''),
+                  (string)($c['ext'] ?? ''),
+                  (string)($c['direction'] ?? ''),
+                  (int)($c['missed'] ?? 0) ? 'yes' : 'no',
+                  $remoteDisplay,
+                  $e164,
+                  $dur !== null ? (string)$dur : '',
+                  (string)($c['linked_case_ref'] ?? ''),
+                  (string)($c['linked_contact_name'] ?? ''),
+                  (string)($c['linked_at'] ?? ''),
+                  (string)($c['linked_by'] ?? ''),
+              ]);
         }
 
         fclose($out);
